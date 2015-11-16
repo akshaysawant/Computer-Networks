@@ -12,6 +12,7 @@ import time
 import datetime
 import random
 import threading
+import signal
 
 dns_mappings = {}
 client_mappings = {}
@@ -94,7 +95,6 @@ class DNSHandler(BaseRequestHandler):
         req = get_message(request)
         
         q = req.question
-        #print self.client_address[0]
         #if !q.name.endswith(CDN_Name):
         if q.name != CDN_Name:
             return
@@ -135,13 +135,11 @@ class DNSHandler(BaseRequestHandler):
         if client_ip not in client_mappings:
             key = random.choice(dns_mappings.keys())
             closest_ip = dns_mappings[key]
-            print 'Assigning Random IP : ' + str(key) + ' : ' + str(closest_ip)
             client_mappings[client_ip] = closest_ip
 
             scamper_ip.append(client_ip)
         else:
             closest_ip = client_mappings[client_ip]
-            print 'Assigning IP from cache : ' + str(closest_ip)
 
         closest_ip = to_net_addr(closest_ip)
         return closest_ip
@@ -167,7 +165,6 @@ def scamper_handler(replica, client, avg_time):
     if last_probe_duration < 1:
         time.sleep(1 - last_probe_duration)
 
-    #print user_name
 
     # Check if the httpserver is running on replica server
     f = os.popen("ssh " + replica + " \'ps acux | grep httpserver | grep " + user_name + "\'")
@@ -187,7 +184,6 @@ def scamper_handler(replica, client, avg_time):
         result = result.split('=')[1].strip()
         avg_rto = float(result.split('/')[1]) / 1000000000
 
-        #print 'Server : ' + str(replica) + ' : ' + str(avg_rto)
 
         avg_time.append(avg_rto)
 
@@ -207,7 +203,6 @@ def run():
     while True:
         i = 0
         number_of_clients = len(scamper_ip)
-        #print 'Number of clients : ' + str(number_of_clients)
         if number_of_clients == 0:
             time.sleep(10)
         else:
@@ -227,7 +222,6 @@ def run():
 
                 for t in threads:
                     t[0].join()
-                    print 'Server : ' + str(t[1]) + ' : Time : ' + str(t[2][0])
                     if t[2][0] < min_time:
                         min_time = t[2][0]
                         client_mappings[client] = dns_mappings[t[1]]
@@ -235,6 +229,10 @@ def run():
                 client_min_time[client] = min_time
                 i += 1
 
+def signal_handler(signal, frame):
+	dnsserver.shutdown()
+        dnsserver.server_close()
+        sys.exit(0)
 
 def main():
     global dns_mappings, CDN_Name, user_name
@@ -272,9 +270,9 @@ def main():
 
         thread = threading.Thread(target=run, args=())
         thread.daemon = True
-        print 'Starting Scamper Daemon'
 
         thread.start()
+	signal.signal(signal.SIGINT, signal_handler)
 
         dnsserver.serve_forever()
     except KeyboardInterrupt:
@@ -284,4 +282,5 @@ def main():
     
 if __name__ == '__main__':
     main()
+
 
